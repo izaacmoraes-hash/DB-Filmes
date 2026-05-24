@@ -1,20 +1,11 @@
 from pathlib import Path
 import pandas as pd
 
+import limpar
+
 def formatar_uma_casa(serie):
     return serie.map(lambda valor: f"{valor:.1f}").astype("string")
 
-def corrigir_erros_pontuais(df):
-    review_score = df["review_score"].astype("string").str.strip()
-    df.loc[review_score == "61/00", "review_score"] = "6.1"
-    df.loc[review_score == "4/0", "review_score"] = "4.0"
-    df.loc[review_score == "4/3.5", "review_score"] = ""
-    return df
-
-def substituir_um_ponto_zero_por_nan(df):
-    review_score = df["review_score"].astype("string").str.strip()
-    df.loc[review_score == "1.0", "review_score"] = pd.NA
-    return df
 
 def converter_fracao_base_10(df, denominador):
     review_score = df["review_score"].astype("string").str.strip()
@@ -29,31 +20,6 @@ def converter_fracao_base_10(df, denominador):
     )
     return df
 
-def converter_numero_inteiro_base_10(df):
-    review_score = df["review_score"].astype("string").str.strip()
-    mask = review_score.str.fullmatch(r"\d+")
-    valores = pd.to_numeric(review_score.where(mask), errors="coerce")
-    mask_centena = mask & valores.gt(100) & valores.le(1000)
-    df.loc[mask_centena, "review_score"] = formatar_uma_casa(valores[mask_centena].div(100))
-    return df
-
-
-def converter_numero_solto_base_10(df):
-    review_score = df["review_score"].astype("string").str.strip()
-    mask = review_score.str.fullmatch(r"\d+(?:\.\d+)?")
-    valores = pd.to_numeric(review_score.where(mask), errors="coerce")
-    mask_base_100 = mask & valores.gt(10) & valores.le(100)
-    df.loc[mask_base_100, "review_score"] = formatar_uma_casa(valores[mask_base_100].div(10))
-    return df
-
-
-def converter_base_1_para_base_10(df):
-    review_score = df["review_score"].astype("string").str.strip()
-    mask = review_score.str.fullmatch(r"\d+(?:\.\d+)?")
-    valores = pd.to_numeric(review_score.where(mask), errors="coerce")
-    mask_base_1 = mask & valores.gt(0) & valores.lt(1)
-    df.loc[mask_base_1, "review_score"] = formatar_uma_casa(valores[mask_base_1].mul(10))
-    return df
 
 
 def alfa_to_numeric(df):
@@ -83,10 +49,8 @@ def alfa_to_numeric(df):
     df["review_score"] = score_convertido
     return df
 
-def limpeza(tabela):
+def padronizar(tabela):
     df = pd.read_csv(tabela)
-    df = corrigir_erros_pontuais(df)
-    df = substituir_um_ponto_zero_por_nan(df)
     for num in range(1, 61):
         df = converter_fracao_base_10(df, num)
 
@@ -101,9 +65,10 @@ def limpeza(tabela):
     df = converter_fracao_base_10(df, 95)
     df = converter_fracao_base_10(df, 100)
     df = converter_fracao_base_10(df, 1000)
-    df = converter_numero_solto_base_10(df)
-    df = converter_numero_inteiro_base_10(df)
-    df = converter_base_1_para_base_10(df)
+    limpar_db = limpar.LimparDB(df)
+    limpar_db.converter_faixa_base_10(10, 100, 10)
+    limpar_db.converter_faixa_base_10(100, 1000, 100)
+    limpar_db.converter_faixa_base_10(0, 1, 0.1)
     
     print("-------------------")
     df = alfa_to_numeric(df)
@@ -119,6 +84,7 @@ def main(tabela):
 
 
 if __name__ == "__main__":
+    limpar.ver()
 
     path = Path(__file__).parent
     tcritico = path / "db" / "tcritico.csv"
