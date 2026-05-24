@@ -16,4 +16,6 @@ if __name__ == "__main__":
     tfilmes = path / "db" / "tfilmes.csv"
     imdb = path / "db" / "imdb.csv"
 
+    limpar.main(imdb, path/ "db" / "imdb.csv")
+
 

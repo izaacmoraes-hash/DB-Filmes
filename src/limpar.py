@@ -70,7 +70,7 @@ class LimparCritico:
         return self.df
 
 class LimparFilmes:
-    CONTENT_RATINGS_VALIDOS = {"G", "PG", "PG-13", "R", "NC-17", "NR"}
+    CONTENT_RATINGS_VALIDOS = {"G", "PG", "PG-13", "R", "NC-17", "NC17", "NR"}
     STATUS_TOMATOMETER_VALIDOS = {"Fresh", "Rotten", "Certified-Fresh"}
     STATUS_AUDIENCE_VALIDOS = {"Upright", "Spilled"}
 
@@ -79,7 +79,9 @@ class LimparFilmes:
 
     @classmethod
     def from_csv(cls, tabela):
-        return cls(pd.read_csv(tabela))
+        df = pd.read_csv(tabela)
+        df = df.replace(r"(?i)^\s*nan\s*$", pd.NA, regex=True)
+        return cls(df)
 
     def _selecionar(self, mask, colunas):
         cols = ["rotten_tomatoes_link", "movie_title", *colunas]
@@ -116,8 +118,10 @@ class LimparFilmes:
         return self._selecionar(mask, ["runtime"])
 
     def linhas_content_rating_invalido(self):
-        valores = self.df["content_rating"].astype("string").str.strip()
-        mask = valores.notna() & ~valores.isin(self.CONTENT_RATINGS_VALIDOS)
+        sem_nulos = self.df["content_rating"].dropna()
+        invalidos = ~sem_nulos.astype(str).str.strip().isin(self.CONTENT_RATINGS_VALIDOS)
+        mask = pd.Series(False, index=self.df.index)
+        mask.loc[invalidos[invalidos].index] = True
         return self._selecionar(mask, ["content_rating"])
 
     def linhas_status_tomatometer_invalido(self):
@@ -131,9 +135,9 @@ class LimparFilmes:
         return self._selecionar(mask, ["audience_status"])
 
     def linhas_soma_criticas_errada(self):
-        total = pd.to_numeric(self.df["tomatometer_count"], errors="coerce")
-        fresh = pd.to_numeric(self.df["tomatometer_fresh_critics_count"], errors="coerce")
-        rotten = pd.to_numeric(self.df["tomatometer_rotten_critics_count"], errors="coerce")
+        total = pd.to_numeric(self.df["tomatometer_count"], errors="coerce").round()
+        fresh = pd.to_numeric(self.df["tomatometer_fresh_critics_count"], errors="coerce").round()
+        rotten = pd.to_numeric(self.df["tomatometer_rotten_critics_count"], errors="coerce").round()
         validos = total.notna() & fresh.notna() & rotten.notna()
         mask = validos & (total != fresh + rotten)
         return self._selecionar(
@@ -144,6 +148,13 @@ class LimparFilmes:
                 "tomatometer_rotten_critics_count",
             ],
         )
+
+    def corrigir_soma_criticas(self):
+        fresh = pd.to_numeric(self.df["tomatometer_fresh_critics_count"], errors="coerce").round()
+        rotten = pd.to_numeric(self.df["tomatometer_rotten_critics_count"], errors="coerce").round()
+        mask = fresh.notna() & rotten.notna()
+        self.df.loc[mask, "tomatometer_count"] = (fresh + rotten)[mask]
+        return self.df
 
     def linhas_top_critics_excedente(self):
         total = pd.to_numeric(self.df["tomatometer_count"], errors="coerce")
@@ -213,21 +224,184 @@ class LimparFilmes:
     def verificar_tudo(self):
         return all(df.empty for df in self.relatorio().values())
 
-    def imprimir_inconsistencias(self):
-        rel = self.relatorio()
-        total = 0
-        for nome, df in rel.items():
+    def inconsistencias_df(self):
+        partes = []
+        for nome, df in self.relatorio().items():
             if df.empty:
                 continue
-            total += len(df)
-            print(f"\n[{nome}] {len(df)} linha(s) inconsistente(s):")
-            print(df.to_string(index=True, max_rows=20))
-        if total == 0:
-            print("Nenhuma inconsistência encontrada.")
-        else:
-            print(f"\nTotal de inconsistências: {total}")
-        return total == 0
+            bloco = df.copy()
+            bloco.insert(0, "verificacao", nome)
+            bloco.insert(1, "linha", bloco.index)
+            partes.append(bloco)
+        if not partes:
+            colunas = ["verificacao", "linha", "rotten_tomatoes_link", "movie_title"]
+            return pd.DataFrame(columns=colunas)
+        return pd.concat(partes, ignore_index=True)
+
+    def resumo_df(self):
+        rel = self.relatorio()
+        return pd.DataFrame(
+            {
+                "verificacao": list(rel.keys()),
+                "qtd_inconsistencias": [len(df) for df in rel.values()],
+            }
+        ).sort_values("qtd_inconsistencias", ascending=False).reset_index(drop=True)
     
+class LimparIMDB:
+    CERTIFICADOS_VALIDOS = {
+        "G", "PG", "PG-13", "R", "NC-17", "GP", "Approved", "Passed", "Unrated",
+        "U", "U/A", "UA", "A", "16",
+        "TV-14", "TV-MA", "TV-PG", "TV-G", "TV-Y", "TV-Y7",
+    }
+    ANO_MINIMO = 1888
+    ANO_MAXIMO = 2026
+
+    def __init__(self, df):
+        self.df = df
+
+    @classmethod
+    def from_csv(cls, tabela):
+        df = pd.read_csv(tabela)
+        df = df.replace(r"(?i)^\s*nan\s*$", pd.NA, regex=True)
+        return cls(df)
+
+    def _selecionar(self, mask, colunas):
+        cols = ["Series_Title", *colunas]
+        cols = [c for c in cols if c in self.df.columns]
+        return self.df.loc[mask, cols]
+
+    def linhas_linha_inteira_duplicada(self):
+        mask = self.df.duplicated(keep=False)
+        return self._selecionar(mask, ["Released_Year", "Director"])
+
+    def linhas_poster_invalido(self):
+        poster = self.df["Poster_Link"].astype("string").str.strip()
+        mask = poster.isna() | ~poster.str.startswith("http", na=False)
+        return self._selecionar(mask, ["Poster_Link"])
+
+    def linhas_titulo_vazio(self):
+        titulo = self.df["Series_Title"].astype("string").str.strip()
+        mask = titulo.isna() | (titulo == "")
+        return self._selecionar(mask, ["Series_Title"])
+
+    def linhas_ano_invalido(self):
+        ano = pd.to_numeric(self.df["Released_Year"], errors="coerce")
+        nao_numerico = self.df["Released_Year"].notna() & ano.isna()
+        fora_intervalo = ano.notna() & ((ano < self.ANO_MINIMO) | (ano > self.ANO_MAXIMO))
+        mask = nao_numerico | fora_intervalo
+        return self._selecionar(mask, ["Released_Year"])
+
+    def linhas_runtime_invalido(self):
+        runtime = self.df["Runtime"].astype("string").str.strip()
+        mask_formato = runtime.notna() & ~runtime.str.match(r"^\d+\s*min$", na=False)
+        minutos = pd.to_numeric(
+            runtime.str.replace(r"\s*min$", "", regex=True), errors="coerce"
+        )
+        mask_valor = minutos.notna() & (minutos <= 0)
+        mask = mask_formato | mask_valor
+        return self._selecionar(mask, ["Runtime"])
+
+    def linhas_imdb_rating_fora_intervalo(self):
+        rating = pd.to_numeric(self.df["IMDB_Rating"], errors="coerce")
+        mask = rating.notna() & ((rating < 0) | (rating > 10))
+        return self._selecionar(mask, ["IMDB_Rating"])
+
+    def linhas_meta_score_fora_intervalo(self):
+        meta = pd.to_numeric(self.df["Meta_score"], errors="coerce")
+        mask = meta.notna() & ((meta < 0) | (meta > 100))
+        return self._selecionar(mask, ["Meta_score"])
+
+    def linhas_no_of_votes_invalido(self):
+        votos = pd.to_numeric(self.df["No_of_Votes"], errors="coerce")
+        mask = votos.notna() & (votos <= 0)
+        return self._selecionar(mask, ["No_of_Votes"])
+
+    def linhas_gross_invalido(self):
+        gross = self.df["Gross"].astype("string").str.replace(",", "", regex=False)
+        valor = pd.to_numeric(gross, errors="coerce")
+        mask = self.df["Gross"].notna() & (valor.isna() | (valor < 0))
+        return self._selecionar(mask, ["Gross"])
+
+    def linhas_certificate_invalido(self):
+        sem_nulos = self.df["Certificate"].dropna()
+        invalidos = ~sem_nulos.astype(str).str.strip().isin(self.CERTIFICADOS_VALIDOS)
+        mask = pd.Series(False, index=self.df.index)
+        mask.loc[invalidos[invalidos].index] = True
+        return self._selecionar(mask, ["Certificate"])
+
+    def linhas_genero_vazio(self):
+        genero = self.df["Genre"].astype("string").str.strip()
+        mask = genero.isna() | (genero == "")
+        return self._selecionar(mask, ["Genre"])
+
+    def linhas_overview_vazio(self):
+        overview = self.df["Overview"].astype("string").str.strip()
+        mask = overview.isna() | (overview == "")
+        return self._selecionar(mask, ["Overview"])
+
+    def linhas_diretor_vazio(self):
+        diretor = self.df["Director"].astype("string").str.strip()
+        mask = diretor.isna() | (diretor == "")
+        return self._selecionar(mask, ["Director"])
+
+    def linhas_elenco_incompleto(self):
+        estrelas = ["Star1", "Star2", "Star3", "Star4"]
+        mask = pd.Series(False, index=self.df.index)
+        for col in estrelas:
+            valores = self.df[col].astype("string").str.strip()
+            mask = mask | valores.isna() | (valores == "")
+        return self._selecionar(mask, estrelas)
+
+    def corrigir_ano_desalinhado(self):
+        ano = pd.to_numeric(self.df["Released_Year"], errors="coerce")
+        mask = self.df["Released_Year"].notna() & ano.isna()
+        self.df.loc[mask, "Released_Year"] = pd.NA
+        return self.df
+
+    def relatorio(self):
+        return {
+            "linha_inteira_duplicada": self.linhas_linha_inteira_duplicada(),
+            "poster_invalido": self.linhas_poster_invalido(),
+            "titulo_vazio": self.linhas_titulo_vazio(),
+            "ano_invalido": self.linhas_ano_invalido(),
+            "runtime_invalido": self.linhas_runtime_invalido(),
+            "imdb_rating_fora_0_10": self.linhas_imdb_rating_fora_intervalo(),
+            "meta_score_fora_0_100": self.linhas_meta_score_fora_intervalo(),
+            "no_of_votes_invalido": self.linhas_no_of_votes_invalido(),
+            "gross_invalido": self.linhas_gross_invalido(),
+            "certificate_invalido": self.linhas_certificate_invalido(),
+            "genero_vazio": self.linhas_genero_vazio(),
+            "overview_vazio": self.linhas_overview_vazio(),
+            "diretor_vazio": self.linhas_diretor_vazio(),
+            "elenco_incompleto": self.linhas_elenco_incompleto(),
+        }
+
+    def verificar_tudo(self):
+        return all(df.empty for df in self.relatorio().values())
+
+    def inconsistencias_df(self):
+        partes = []
+        for nome, df in self.relatorio().items():
+            if df.empty:
+                continue
+            bloco = df.copy()
+            bloco.insert(0, "verificacao", nome)
+            bloco.insert(1, "linha", bloco.index)
+            partes.append(bloco)
+        if not partes:
+            return pd.DataFrame(columns=["verificacao", "linha", "Series_Title"])
+        return pd.concat(partes, ignore_index=True)
+
+    def resumo_df(self):
+        rel = self.relatorio()
+        return pd.DataFrame(
+            {
+                "verificacao": list(rel.keys()),
+                "qtd_inconsistencias": [len(df) for df in rel.values()],
+            }
+        ).sort_values("qtd_inconsistencias", ascending=False).reset_index(drop=True)
+
+
 def Critica(tabela, caminho_saida):
     "Critica"
     db = LimparCritico.from_csv(tabela)
@@ -245,16 +419,27 @@ def Critica(tabela, caminho_saida):
     print(db.df["review_score"].unique())
 
 
-def main(tabela, caminho_saida):
-
+def Filmes(tabela, caminho_saida):
     "Filmes"
     db = LimparFilmes.from_csv(tabela)
-    db.imprimir_inconsistencias()       # imprime todas as linhas com problema
+    db.corrigir_soma_criticas()
+    print("Resumo de inconsistências por verificação:")
+    print(db.resumo_df())
+    print("\nTodas as inconsistências (DataFrame):")
+    print(db.inconsistencias_df())
 
-    # ou programaticamente:
-    rel = db.relatorio()
-    print(rel["soma_criticas_errada"])  # DataFrame só com linhas onde a soma falha
 
-
+def IMDB(tabela, caminho_saida):
     "IMDB"
+    db = LimparIMDB.from_csv(tabela)
+    print("Resumo de inconsistências por verificação:")
+    print(db.resumo_df())
+    print("\nTodas as inconsistências (DataFrame):")
+    print(db.inconsistencias_df())
+
+
+def main(tabela, caminho_saida):
+    "IMDB"
+    IMDB(tabela, caminho_saida)
+
 
