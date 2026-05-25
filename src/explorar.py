@@ -1,7 +1,7 @@
 import pandas as pd
 
 from limpar import LimparCritico
-from utils import BASE_DIR, OUTPUT_DIR, normalizar_titulo
+from utils import BASE_DIR, normalizar_titulo
 
 
 def carregar_tabelas(base_dir=BASE_DIR):
@@ -10,9 +10,6 @@ def carregar_tabelas(base_dir=BASE_DIR):
         "tfilmes.csv": pd.read_csv(base_dir / "tfilmes.csv"),
         "tcritico.csv": pd.read_csv(base_dir / "tcritico.csv"),
     }
-
-
-# ─── notas ────────────────────────────────────────────────────────────────────
 
 def normalizar_notas_tcritico(tcritico):
     notas = tcritico[["rotten_tomatoes_link", "review_score"]].copy()
@@ -29,7 +26,6 @@ def normalizar_notas_tcritico(tcritico):
     notas["review_score_base10"] = pd.to_numeric(limpador.df["review_score"], errors="coerce")
     notas["review_score_base100"] = notas["review_score_base10"] * 10
     return notas
-
 
 def resumir_estrutura_notas(tabelas):
     imdb = tabelas["imdb.csv"]
@@ -78,7 +74,6 @@ def resumir_estrutura_notas(tabelas):
         },
     ])
 
-
 def montar_base_notas(tabelas):
     imdb = tabelas["imdb.csv"].copy()
     tfilmes = tabelas["tfilmes.csv"].copy()
@@ -115,7 +110,6 @@ def montar_base_notas(tabelas):
     )
     return comparacao
 
-
 def resumir_diferencas_notas(comparacao):
     metricas = [
         ("IMDB publico vs Rotten audience", "dif_publico_imdb_vs_rt"),
@@ -136,7 +130,6 @@ def resumir_diferencas_notas(comparacao):
         })
 
     return pd.DataFrame(linhas)
-
 
 def exemplos_diferencas_notas(comparacao):
     metricas = [
@@ -160,7 +153,6 @@ def exemplos_diferencas_notas(comparacao):
         exemplos.append(base)
 
     return pd.concat(exemplos, ignore_index=True) if exemplos else pd.DataFrame()
-
 
 def gerar_recomendacoes(tabelas, comuns_tres, comparacao):
     recomendacoes = []
@@ -197,9 +189,6 @@ def gerar_recomendacoes(tabelas, comuns_tres, comparacao):
 
     return pd.DataFrame(recomendacoes)
 
-
-# ─── colunas ──────────────────────────────────────────────────────────────────
-
 def analisar_colunas_exclusivas(tabelas):
     colunas_por_tabela = {nome: set(df.columns) for nome, df in tabelas.items()}
     linhas = []
@@ -213,16 +202,12 @@ def analisar_colunas_exclusivas(tabelas):
         })
     return pd.DataFrame(linhas)
 
-
 def analisar_colunas_comuns_tres(tabelas):
     listas = [set(df.columns) for df in tabelas.values()]
     comuns = sorted(set.intersection(*listas)) if listas else []
     if not comuns:
         return pd.DataFrame([{"colunas_comuns_tres": "(nenhuma)"}])
     return pd.DataFrame({"colunas_comuns_tres": comuns})
-
-
-# ─── union ────────────────────────────────────────────────────────────────────
 
 def relacoes_entre_tabelas(imdb_path, tfilmes_path, tcritico_path):
     imdb    = pd.read_csv(imdb_path, nrows=0)
@@ -265,39 +250,10 @@ def relacoes_entre_tabelas(imdb_path, tfilmes_path, tcritico_path):
 
     return pd.DataFrame(linhas)
 
-
-def criar_tabela_union(imdb_path, tfilmes_path, tcritico_path, saida_path):
-    imdb    = pd.read_csv(imdb_path).copy()
-    tfilmes = pd.read_csv(tfilmes_path).copy()
-    tcritico = pd.read_csv(tcritico_path)
-
-    imdb["title_norm"]    = imdb["Series_Title"].map(normalizar_titulo)
-    imdb["year_norm"]     = pd.to_numeric(imdb["Released_Year"], errors="coerce").astype("Int64")
-    tfilmes["title_norm"] = tfilmes["movie_title"].map(normalizar_titulo)
-    tfilmes["year_norm"]  = (
-        pd.to_datetime(tfilmes["original_release_date"], errors="coerce").dt.year.astype("Int64")
-    )
-
-    union = (
-        imdb.merge(tfilmes, how="left", on=["title_norm", "year_norm"], suffixes=("_imdb", "_rt"))
-            .merge(tcritico, how="left", on="rotten_tomatoes_link")
-            .drop(columns=["title_norm", "year_norm"])
-    )
-
-    saida_path.parent.mkdir(parents=True, exist_ok=True)
-    union.to_csv(saida_path, index=False)
-    return union
-
-
-# ─── impressão ────────────────────────────────────────────────────────────────
-
 def _imprimir_secao(titulo, df):
     print(f"\n{titulo}")
     print("-" * len(titulo))
     print("Sem dados." if df.empty else df.to_string(index=False))
-
-
-# ─── entradas ─────────────────────────────────────────────────────────────────
 
 def explorar_dados():
     tabelas = carregar_tabelas()
@@ -319,14 +275,9 @@ def explorar_dados():
     tcritico  = BASE_DIR / "tcritico.csv"
     tfilmes_p = BASE_DIR / "tfilmes.csv"
     imdb_p    = BASE_DIR / "imdb.csv"
-    union_path = OUTPUT_DIR / "union.csv"
 
     df_relacoes = relacoes_entre_tabelas(imdb_p, tfilmes_p, tcritico)
     _imprimir_secao("5. Relacoes entre as tabelas", df_relacoes)
-
-    df_union = criar_tabela_union(imdb_p, tfilmes_p, tcritico, union_path)
-    print(f"\nTabela union criada em: {union_path}  ({len(df_union)} linhas)")
-
 
 if __name__ == "__main__":
     explorar_dados()

@@ -13,14 +13,12 @@ def limpar_imdb(path):
     db.normalizar_gross()
     return db.df
 
-
 def limpar_tfilmes(path):
     db = LimparFilmes.from_csv(path)
     db.normalizar_strings()
     db.normalizar_content_rating()
     db.corrigir_soma_criticas()
     return db.df
-
 
 def limpar_tcritico(path):
     db = LimparCritico.from_csv(path)
@@ -33,7 +31,6 @@ def limpar_tcritico(path):
     db.converter_faixa_base_10(0, 1, 0.1)
     db.alfa_to_numeric()
     return db.df
-
 
 def verificar_compatibilidade(imdb, tfilmes):
     linhas = []
@@ -82,7 +79,6 @@ def verificar_compatibilidade(imdb, tfilmes):
 
     return pd.DataFrame(linhas)
 
-
 def padronizar_notas_base100(imdb, tfilmes, tcritico):
     imdb_c = imdb.copy()
     tfilmes_c = tfilmes.copy()
@@ -121,7 +117,6 @@ def padronizar_notas_base100(imdb, tfilmes, tcritico):
 
     return filmes
 
-
 def calcular_nota_media(df):
     colunas_notas = ["imdb_rating_base100", "meta_score", "tomatometer_rating",
                      "audience_rating", "media_review_score"]
@@ -130,7 +125,6 @@ def calcular_nota_media(df):
     df["nota_media"] = df[colunas_presentes].mean(axis=1, skipna=True).round(2)
     df["qtd_notas_usadas"] = df[colunas_presentes].notna().sum(axis=1)
     return df
-
 
 def preparar_dados():
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -166,7 +160,6 @@ def preparar_dados():
 
     filmes_notas.to_csv(OUTPUT_DIR / "filmes_notas.csv", index=False)
     print(f"\nArquivos salvos em {OUTPUT_DIR}")
-
 
 if __name__ == "__main__":
     preparar_dados()

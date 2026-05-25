@@ -5,14 +5,11 @@ import pandas as pd
 from utils import normalizar_titulo, BASE_DIR, OUTPUT_DIR, DB_PATH
 
 
-# ─── helpers ──────────────────────────────────────────────────────────────────
-
 def converter_str(v):
     if v is None or (isinstance(v, float) and pd.isna(v)):
         return None
     s = str(v).strip()
     return None if (not s or s.lower() == "nan") else s
-
 
 def converter_float(v):
     s = converter_str(v)
@@ -23,18 +20,13 @@ def converter_float(v):
     except (ValueError, AttributeError):
         return None
 
-
 def converter_int(v):
     f = converter_float(v)
     return int(f) if f is not None else None
 
-
 def split_lista(v):
     s = converter_str(v)
     return [x.strip() for x in s.split(",") if x.strip()] if s else []
-
-
-# ─── DDL ──────────────────────────────────────────────────────────────────────
 
 DDL = """
 PRAGMA foreign_keys = ON;
@@ -143,9 +135,6 @@ CREATE TABLE IF NOT EXISTS Critica (
 );
 """
 
-
-# ─── lookup helper ────────────────────────────────────────────────────────────
-
 def inserir_lookup(conn, tabela, coluna, valores):
     """Insere valores únicos e retorna dict {valor: id}."""
     cur = conn.cursor()
@@ -157,9 +146,6 @@ def inserir_lookup(conn, tabela, coluna, valores):
     conn.commit()
     cur.execute(f"SELECT {coluna}, rowid FROM {tabela}")
     return dict(cur.fetchall())
-
-
-# ─── tfilmes ──────────────────────────────────────────────────────────────────
 
 def popular_tfilmes(conn, df):
     cur = conn.cursor()
@@ -265,9 +251,6 @@ def popular_tfilmes(conn, df):
     conn.commit()
     return rt_to_id, id_pessoa, id_genero
 
-
-# ─── imdb ─────────────────────────────────────────────────────────────────────
-
 def popular_imdb(conn, df, rt_to_id, id_pessoa, id_genero):
     cur = conn.cursor()
 
@@ -337,9 +320,6 @@ def popular_imdb(conn, df, rt_to_id, id_pessoa, id_genero):
     cur.executemany("INSERT OR IGNORE INTO Filme_Diretor    VALUES (?, ?)", fd)
     cur.executemany("INSERT OR IGNORE INTO Filme_Genero     VALUES (?, ?)", fg)
     conn.commit()
-
-
-# ─── tcritico ─────────────────────────────────────────────────────────────────
 
 def popular_tcritico(conn, path, rt_to_id):
     cur = conn.cursor()
@@ -412,9 +392,6 @@ def popular_tcritico(conn, path, rt_to_id):
             print(f"    {total:,} críticas inseridas...")
     return total
 
-
-# ─── resumo ───────────────────────────────────────────────────────────────────
-
 def _imprimir_resumo(conn):
     tabelas = [
         "Classificacao_Etaria", "Produtora", "Publicadora", "Genero",
@@ -428,9 +405,6 @@ def _imprimir_resumo(conn):
         cur.execute(f"SELECT COUNT(*) FROM {t}")
         n = cur.fetchone()[0]
         print(f"  {t:<30} {n:>10,}")
-
-
-# ─── entrada ──────────────────────────────────────────────────────────────────
 
 def criar_banco():
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)

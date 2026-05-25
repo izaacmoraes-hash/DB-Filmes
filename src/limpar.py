@@ -409,7 +409,6 @@ def executar_critico(tabela, caminho_saida):
     db.df.to_csv(caminho_saida / "beta_completo.csv", index=False)
     print(db.df["review_score"].unique())
 
-
 def executar_filmes(tabela, caminho_saida):
     db = LimparFilmes.from_csv(tabela)
     db.corrigir_soma_criticas()
@@ -418,14 +417,12 @@ def executar_filmes(tabela, caminho_saida):
     print("\nTodas as inconsistências (DataFrame):")
     print(db.inconsistencias_df())
 
-
 def executar_imdb(tabela, caminho_saida):
     db = LimparImdb.from_csv(tabela)
     print("Resumo de inconsistências por verificação:")
     print(db.resumo_df())
     print("\nTodas as inconsistências (DataFrame):")
     print(db.inconsistencias_df())
-
 
 def executar_limpeza(tabela, caminho_saida):
     executar_imdb(tabela, caminho_saida)
