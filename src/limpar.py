@@ -69,6 +69,12 @@ class LimparCritico:
         self.df["review_score"] = score_convertido
         return self.df
 
+    def normalizar_strings(self):
+        for col in self.df.select_dtypes(include="object").columns:
+            self.df[col] = self.df[col].astype("string").str.strip().str.replace(r"\s+", " ", regex=True)
+        return self.df
+
+
 class LimparFilmes:
     CONTENT_RATINGS_VALIDOS = {"G", "PG", "PG-13", "R", "NC-17", "NC17", "NR"}
     STATUS_TOMATOMETER_VALIDOS = {"Fresh", "Rotten", "Certified-Fresh"}
@@ -154,6 +160,20 @@ class LimparFilmes:
         rotten = pd.to_numeric(self.df["tomatometer_rotten_critics_count"], errors="coerce").round()
         mask = fresh.notna() & rotten.notna()
         self.df.loc[mask, "tomatometer_count"] = (fresh + rotten)[mask]
+        return self.df
+
+    def normalizar_strings(self):
+        for col in self.df.select_dtypes(include="object").columns:
+            self.df[col] = self.df[col].astype("string").str.strip().str.replace(r"\s+", " ", regex=True)
+        return self.df
+
+    def normalizar_content_rating(self):
+        self.df["content_rating"] = (
+            self.df["content_rating"]
+            .astype("string")
+            .str.strip()
+            .replace("NC17", "NC-17")
+        )
         return self.df
 
     def linhas_top_critics_excedente(self):
@@ -356,6 +376,26 @@ class LimparIMDB:
         ano = pd.to_numeric(self.df["Released_Year"], errors="coerce")
         mask = self.df["Released_Year"].notna() & ano.isna()
         self.df.loc[mask, "Released_Year"] = pd.NA
+        return self.df
+
+    def normalizar_strings(self):
+        for col in self.df.select_dtypes(include="object").columns:
+            self.df[col] = self.df[col].astype("string").str.strip().str.replace(r"\s+", " ", regex=True)
+        return self.df
+
+    def extrair_runtime_minutos(self):
+        minutos = (
+            self.df["Runtime"]
+            .astype("string")
+            .str.strip()
+            .str.replace(r"\s*min$", "", regex=True)
+        )
+        self.df["Runtime"] = pd.to_numeric(minutos, errors="coerce")
+        return self.df
+
+    def normalizar_gross(self):
+        gross = self.df["Gross"].astype("string").str.strip().str.replace(",", "", regex=False)
+        self.df["Gross"] = pd.to_numeric(gross, errors="coerce")
         return self.df
 
     def relatorio(self):
