@@ -5,10 +5,53 @@ def formatar_uma_casa(serie):
     return serie.map(lambda valor: f"{valor:.1f}").astype("string")
 
 
-class LimparCritico:
+class LimparBase:
+    _colunas_vazias = ["verificacao", "linha"]
+
     def __init__(self, df):
         self.df = df
 
+    @classmethod
+    def from_csv(cls, tabela):
+        df = pd.read_csv(tabela)
+        df = df.replace(r"(?i)^\s*nan\s*$", pd.NA, regex=True)
+        return cls(df)
+
+    def normalizar_strings(self):
+        for col in self.df.select_dtypes(include="object").columns:
+            self.df[col] = self.df[col].astype("string").str.strip().str.replace(r"\s+", " ", regex=True)
+        return self.df
+
+    def relatorio(self):
+        raise NotImplementedError
+
+    def verificar_tudo(self):
+        return all(df.empty for df in self.relatorio().values())
+
+    def resumo_df(self):
+        rel = self.relatorio()
+        return pd.DataFrame(
+            {
+                "verificacao": list(rel.keys()),
+                "qtd_inconsistencias": [len(df) for df in rel.values()],
+            }
+        ).sort_values("qtd_inconsistencias", ascending=False).reset_index(drop=True)
+
+    def inconsistencias_df(self):
+        partes = []
+        for nome, df in self.relatorio().items():
+            if df.empty:
+                continue
+            bloco = df.copy()
+            bloco.insert(0, "verificacao", nome)
+            bloco.insert(1, "linha", bloco.index)
+            partes.append(bloco)
+        if not partes:
+            return pd.DataFrame(columns=self._colunas_vazias)
+        return pd.concat(partes, ignore_index=True)
+
+
+class LimparCritico(LimparBase):
     @classmethod
     def from_csv(cls, tabela):
         return cls(pd.read_csv(tabela))
@@ -46,21 +89,11 @@ class LimparCritico:
         review_score = self.df["review_score"].astype("string").str.strip().str.upper()
         review_score = review_score.str.replace(r"([A-F])\s+([+-])", r"\1\2", regex=True)
         escala_letras = {
-            "A+": 10.0,
-            "A": 9.5,
-            "A-": 9.0,
-            "B+": 8.5,
-            "B": 8.0,
-            "B-": 7.5,
-            "C+": 6.5,
-            "C": 5.5,
-            "C-": 4.5,
-            "D+": 4.0,
-            "D": 3.5,
-            "D-": 3.0,
-            "F+": 2.0,
-            "F": 1.1,
-            "F-": 0.0,
+            "A+": 10.0, "A": 9.5, "A-": 9.0,
+            "B+": 8.5,  "B": 8.0, "B-": 7.5,
+            "C+": 6.5,  "C": 5.5, "C-": 4.5,
+            "D+": 4.0,  "D": 3.5, "D-": 3.0,
+            "F+": 2.0,  "F": 1.1, "F-": 0.0,
         }
         score_convertido = review_score.replace(escala_letras)
         mask = review_score.isin(escala_letras)
@@ -69,25 +102,12 @@ class LimparCritico:
         self.df["review_score"] = score_convertido
         return self.df
 
-    def normalizar_strings(self):
-        for col in self.df.select_dtypes(include="object").columns:
-            self.df[col] = self.df[col].astype("string").str.strip().str.replace(r"\s+", " ", regex=True)
-        return self.df
 
-
-class LimparFilmes:
+class LimparFilmes(LimparBase):
     CONTENT_RATINGS_VALIDOS = {"G", "PG", "PG-13", "R", "NC-17", "NC17", "NR"}
     STATUS_TOMATOMETER_VALIDOS = {"Fresh", "Rotten", "Certified-Fresh"}
     STATUS_AUDIENCE_VALIDOS = {"Upright", "Spilled"}
-
-    def __init__(self, df):
-        self.df = df
-
-    @classmethod
-    def from_csv(cls, tabela):
-        df = pd.read_csv(tabela)
-        df = df.replace(r"(?i)^\s*nan\s*$", pd.NA, regex=True)
-        return cls(df)
+    _colunas_vazias = ["verificacao", "linha", "rotten_tomatoes_link", "movie_title"]
 
     def _selecionar(self, mask, colunas):
         cols = ["rotten_tomatoes_link", "movie_title", *colunas]
@@ -160,11 +180,6 @@ class LimparFilmes:
         rotten = pd.to_numeric(self.df["tomatometer_rotten_critics_count"], errors="coerce").round()
         mask = fresh.notna() & rotten.notna()
         self.df.loc[mask, "tomatometer_count"] = (fresh + rotten)[mask]
-        return self.df
-
-    def normalizar_strings(self):
-        for col in self.df.select_dtypes(include="object").columns:
-            self.df[col] = self.df[col].astype("string").str.strip().str.replace(r"\s+", " ", regex=True)
         return self.df
 
     def normalizar_content_rating(self):
@@ -241,33 +256,8 @@ class LimparFilmes:
             "titulo_vazio": self.linhas_titulo_vazio(),
         }
 
-    def verificar_tudo(self):
-        return all(df.empty for df in self.relatorio().values())
 
-    def inconsistencias_df(self):
-        partes = []
-        for nome, df in self.relatorio().items():
-            if df.empty:
-                continue
-            bloco = df.copy()
-            bloco.insert(0, "verificacao", nome)
-            bloco.insert(1, "linha", bloco.index)
-            partes.append(bloco)
-        if not partes:
-            colunas = ["verificacao", "linha", "rotten_tomatoes_link", "movie_title"]
-            return pd.DataFrame(columns=colunas)
-        return pd.concat(partes, ignore_index=True)
-
-    def resumo_df(self):
-        rel = self.relatorio()
-        return pd.DataFrame(
-            {
-                "verificacao": list(rel.keys()),
-                "qtd_inconsistencias": [len(df) for df in rel.values()],
-            }
-        ).sort_values("qtd_inconsistencias", ascending=False).reset_index(drop=True)
-    
-class LimparIMDB:
+class LimparImdb(LimparBase):
     CERTIFICADOS_VALIDOS = {
         "G", "PG", "PG-13", "R", "NC-17", "GP", "Approved", "Passed", "Unrated",
         "U", "U/A", "UA", "A", "16",
@@ -275,15 +265,7 @@ class LimparIMDB:
     }
     ANO_MINIMO = 1888
     ANO_MAXIMO = 2026
-
-    def __init__(self, df):
-        self.df = df
-
-    @classmethod
-    def from_csv(cls, tabela):
-        df = pd.read_csv(tabela)
-        df = df.replace(r"(?i)^\s*nan\s*$", pd.NA, regex=True)
-        return cls(df)
+    _colunas_vazias = ["verificacao", "linha", "Series_Title"]
 
     def _selecionar(self, mask, colunas):
         cols = ["Series_Title", *colunas]
@@ -378,11 +360,6 @@ class LimparIMDB:
         self.df.loc[mask, "Released_Year"] = pd.NA
         return self.df
 
-    def normalizar_strings(self):
-        for col in self.df.select_dtypes(include="object").columns:
-            self.df[col] = self.df[col].astype("string").str.strip().str.replace(r"\s+", " ", regex=True)
-        return self.df
-
     def extrair_runtime_minutos(self):
         minutos = (
             self.df["Runtime"]
@@ -416,34 +393,8 @@ class LimparIMDB:
             "elenco_incompleto": self.linhas_elenco_incompleto(),
         }
 
-    def verificar_tudo(self):
-        return all(df.empty for df in self.relatorio().values())
 
-    def inconsistencias_df(self):
-        partes = []
-        for nome, df in self.relatorio().items():
-            if df.empty:
-                continue
-            bloco = df.copy()
-            bloco.insert(0, "verificacao", nome)
-            bloco.insert(1, "linha", bloco.index)
-            partes.append(bloco)
-        if not partes:
-            return pd.DataFrame(columns=["verificacao", "linha", "Series_Title"])
-        return pd.concat(partes, ignore_index=True)
-
-    def resumo_df(self):
-        rel = self.relatorio()
-        return pd.DataFrame(
-            {
-                "verificacao": list(rel.keys()),
-                "qtd_inconsistencias": [len(df) for df in rel.values()],
-            }
-        ).sort_values("qtd_inconsistencias", ascending=False).reset_index(drop=True)
-
-
-def Critica(tabela, caminho_saida):
-    "Critica"
+def executar_critico(tabela, caminho_saida):
     db = LimparCritico.from_csv(tabela)
     db.corrigir_erros_pontuais()
     for num in list(range(1, 61)) + [5.4, 5.5, 20, 45, 50, 70, 80, 90, 95, 100, 1000]:
@@ -459,8 +410,7 @@ def Critica(tabela, caminho_saida):
     print(db.df["review_score"].unique())
 
 
-def Filmes(tabela, caminho_saida):
-    "Filmes"
+def executar_filmes(tabela, caminho_saida):
     db = LimparFilmes.from_csv(tabela)
     db.corrigir_soma_criticas()
     print("Resumo de inconsistências por verificação:")
@@ -469,17 +419,13 @@ def Filmes(tabela, caminho_saida):
     print(db.inconsistencias_df())
 
 
-def IMDB(tabela, caminho_saida):
-    "IMDB"
-    db = LimparIMDB.from_csv(tabela)
+def executar_imdb(tabela, caminho_saida):
+    db = LimparImdb.from_csv(tabela)
     print("Resumo de inconsistências por verificação:")
     print(db.resumo_df())
     print("\nTodas as inconsistências (DataFrame):")
     print(db.inconsistencias_df())
 
 
-def main(tabela, caminho_saida):
-    "IMDB"
-    IMDB(tabela, caminho_saida)
-
-
+def executar_limpeza(tabela, caminho_saida):
+    executar_imdb(tabela, caminho_saida)

@@ -1,22 +1,12 @@
-import re
-import sys
-from pathlib import Path
-
 import pandas as pd
 
-if str(Path(__file__).resolve().parent) not in sys.path:
-    sys.path.append(str(Path(__file__).resolve().parent))
-
-from limpar import LimparCritico, LimparFilmes, LimparIMDB
-from info import normalizar_notas_tcritico
-
-
-BASE_DIR = Path(__file__).parent / "db"
-OUTPUT_DIR = BASE_DIR / "output"
+from limpar import LimparCritico, LimparFilmes, LimparImdb
+from explorar import normalizar_notas_tcritico
+from utils import BASE_DIR, OUTPUT_DIR, normalizar_titulo
 
 
 def limpar_imdb(path):
-    db = LimparIMDB.from_csv(path)
+    db = LimparImdb.from_csv(path)
     db.normalizar_strings()
     db.corrigir_ano_desalinhado()
     db.extrair_runtime_minutos()
@@ -48,7 +38,6 @@ def limpar_tcritico(path):
 def verificar_compatibilidade(imdb, tfilmes):
     linhas = []
 
-    # Runtime: IMDB agora é float após extração; tfilmes também é float
     runtime_imdb_ok = pd.api.types.is_numeric_dtype(imdb["Runtime"])
     runtime_rt_ok = pd.api.types.is_numeric_dtype(tfilmes["runtime"])
     linhas.append({
@@ -58,7 +47,6 @@ def verificar_compatibilidade(imdb, tfilmes):
         "observacao": "Ambas numericas (minutos) apos extracao do sufixo 'min'",
     })
 
-    # Certificate vs content_rating — verificar sobreposição de valores
     certs = set(imdb["Certificate"].dropna().unique())
     ratings = set(tfilmes["content_rating"].dropna().unique())
     so_imdb = sorted(certs - ratings)
@@ -73,7 +61,6 @@ def verificar_compatibilidade(imdb, tfilmes):
         ),
     })
 
-    # Genre vs genres — formatos distintos
     exemplo_imdb = imdb["Genre"].dropna().iloc[0] if not imdb["Genre"].dropna().empty else ""
     exemplo_rt = tfilmes["genres"].dropna().iloc[0] if not tfilmes["genres"].dropna().empty else ""
     linhas.append({
@@ -86,7 +73,6 @@ def verificar_compatibilidade(imdb, tfilmes):
         ),
     })
 
-    # Released_Year vs original_release_date
     linhas.append({
         "coluna_imdb": "Released_Year",
         "coluna_tfilmes": "original_release_date",
@@ -97,22 +83,14 @@ def verificar_compatibilidade(imdb, tfilmes):
     return pd.DataFrame(linhas)
 
 
-def _normalizar_titulo(valor):
-    if pd.isna(valor):
-        return pd.NA
-    texto = str(valor).strip().lower()
-    texto = re.sub(r"[^a-z0-9]+", " ", texto)
-    return re.sub(r"\s+", " ", texto).strip()
-
-
 def padronizar_notas_base100(imdb, tfilmes, tcritico):
     imdb_c = imdb.copy()
     tfilmes_c = tfilmes.copy()
 
-    imdb_c["title_norm"] = imdb_c["Series_Title"].map(_normalizar_titulo)
+    imdb_c["title_norm"] = imdb_c["Series_Title"].map(normalizar_titulo)
     imdb_c["year_norm"] = pd.to_numeric(imdb_c["Released_Year"], errors="coerce").astype("Int64")
 
-    tfilmes_c["title_norm"] = tfilmes_c["movie_title"].map(_normalizar_titulo)
+    tfilmes_c["title_norm"] = tfilmes_c["movie_title"].map(normalizar_titulo)
     tfilmes_c["year_norm"] = (
         pd.to_datetime(tfilmes_c["original_release_date"], errors="coerce")
         .dt.year
@@ -126,7 +104,6 @@ def padronizar_notas_base100(imdb, tfilmes, tcritico):
         on=["title_norm", "year_norm"],
     ).drop(columns=["title_norm", "year_norm"])
 
-    # Notas individuais normalizadas por tcritico
     notas_critico = normalizar_notas_tcritico(tcritico)
     media_criticos = (
         notas_critico
@@ -137,7 +114,6 @@ def padronizar_notas_base100(imdb, tfilmes, tcritico):
 
     filmes = filmes.merge(media_criticos, how="left", on="rotten_tomatoes_link")
 
-    # Converter IMDB_Rating de 0-10 para 0-100
     filmes["imdb_rating_base100"] = pd.to_numeric(filmes["IMDB_Rating"], errors="coerce") * 10
     filmes["meta_score"] = pd.to_numeric(filmes["Meta_score"], errors="coerce")
     filmes["tomatometer_rating"] = pd.to_numeric(filmes["tomatometer_rating"], errors="coerce")
@@ -156,7 +132,7 @@ def calcular_nota_media(df):
     return df
 
 
-def main():
+def preparar_dados():
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
     print("Limpando IMDB...")
@@ -193,4 +169,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    preparar_dados()

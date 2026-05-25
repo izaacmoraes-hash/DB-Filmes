@@ -1,36 +1,21 @@
-import re
-import sys
-from pathlib import Path
 import sqlite3
 
 import pandas as pd
 
-if str(Path(__file__).resolve().parent) not in sys.path:
-    sys.path.append(str(Path(__file__).resolve().parent))
-
-BASE_DIR   = Path(__file__).parent / "db"
-OUTPUT_DIR = BASE_DIR / "output"
-DB_PATH    = OUTPUT_DIR / "filmes.db"
+from utils import normalizar_titulo, BASE_DIR, OUTPUT_DIR, DB_PATH
 
 
 # ─── helpers ──────────────────────────────────────────────────────────────────
 
-def norm_titulo(valor):
-    if valor is None or (isinstance(valor, float) and pd.isna(valor)):
-        return None
-    t = re.sub(r"[^a-z0-9]+", " ", str(valor).strip().lower())
-    return re.sub(r"\s+", " ", t).strip()
-
-
-def to_str(v):
+def converter_str(v):
     if v is None or (isinstance(v, float) and pd.isna(v)):
         return None
     s = str(v).strip()
     return None if (not s or s.lower() == "nan") else s
 
 
-def to_float(v):
-    s = to_str(v)
+def converter_float(v):
+    s = converter_str(v)
     if s is None:
         return None
     try:
@@ -39,13 +24,13 @@ def to_float(v):
         return None
 
 
-def to_int(v):
-    f = to_float(v)
+def converter_int(v):
+    f = converter_float(v)
     return int(f) if f is not None else None
 
 
 def split_lista(v):
-    s = to_str(v)
+    s = converter_str(v)
     return [x.strip() for x in s.split(",") if x.strip()] if s else []
 
 
@@ -200,35 +185,35 @@ def popular_tfilmes(conn, df):
     filme_rows = []
     avrt_rows  = []
     for row in df.itertuples(index=False):
-        titulo = to_str(row.movie_title)
+        titulo = converter_str(row.movie_title)
         if not titulo:
             continue
-        rt        = to_str(row.rotten_tomatoes_link)
-        data_lanc = to_str(row.original_release_date)
+        rt        = converter_str(row.rotten_tomatoes_link)
+        data_lanc = converter_str(row.original_release_date)
         ano       = int(data_lanc[:4]) if data_lanc and len(data_lanc) >= 4 else None
-        cr        = to_str(row.content_rating)
-        prd       = to_str(row.production_company)
+        cr        = converter_str(row.content_rating)
+        prd       = converter_str(row.production_company)
         filme_rows.append((
             rt, titulo,
-            to_str(row.movie_info),
-            to_str(row.critics_consensus),
+            converter_str(row.movie_info),
+            converter_str(row.critics_consensus),
             ano, data_lanc,
-            to_str(row.streaming_release_date),
-            to_float(row.runtime),
+            converter_str(row.streaming_release_date),
+            converter_float(row.runtime),
             id_rating.get(cr),
             id_produtora.get(prd),
         ))
         avrt_rows.append((
             rt,
-            to_float(row.tomatometer_rating),
-            to_str(row.tomatometer_status),
-            to_float(row.tomatometer_count),
-            to_int(row.tomatometer_fresh_critics_count),
-            to_int(row.tomatometer_rotten_critics_count),
-            to_int(row.tomatometer_top_critics_count),
-            to_float(row.audience_rating),
-            to_str(row.audience_status),
-            to_float(row.audience_count),
+            converter_float(row.tomatometer_rating),
+            converter_str(row.tomatometer_status),
+            converter_float(row.tomatometer_count),
+            converter_int(row.tomatometer_fresh_critics_count),
+            converter_int(row.tomatometer_rotten_critics_count),
+            converter_int(row.tomatometer_top_critics_count),
+            converter_float(row.audience_rating),
+            converter_str(row.audience_status),
+            converter_float(row.audience_count),
         ))
 
     cur.executemany("""
@@ -257,7 +242,7 @@ def popular_tfilmes(conn, df):
     print("  relacoes filme-genero, diretor, roteirista, ator...")
     fg = set(); fd = set(); fr = set(); fa = set()
     for row in df.itertuples(index=False):
-        idf = rt_to_id.get(to_str(row.rotten_tomatoes_link))
+        idf = rt_to_id.get(converter_str(row.rotten_tomatoes_link))
         if not idf:
             continue
         for g in split_lista(row.genres):
@@ -288,21 +273,19 @@ def popular_imdb(conn, df, rt_to_id, id_pessoa, id_genero):
 
     cur.execute("SELECT id_filme, titulo, ano_lancamento FROM Filme")
     titulo_to_id = {
-        (norm_titulo(t), a): idf
+        (normalizar_titulo(t), a): idf
         for idf, t, a in cur.fetchall() if a
     }
 
-    # Novas pessoas do IMDB não presentes em tfilmes
     novas_p = {
-        to_str(getattr(row, col))
+        converter_str(getattr(row, col))
         for row in df.itertuples(index=False)
         for col in ("Director", "Star1", "Star2", "Star3", "Star4")
-        if to_str(getattr(row, col)) and to_str(getattr(row, col)) not in id_pessoa
+        if converter_str(getattr(row, col)) and converter_str(getattr(row, col)) not in id_pessoa
     }
     if novas_p:
         id_pessoa.update(inserir_lookup(conn, "Pessoa", "nome", novas_p))
 
-    # Novos gêneros do IMDB
     novos_g = {
         g
         for v in df["Genre"].dropna()
@@ -314,8 +297,8 @@ def popular_imdb(conn, df, rt_to_id, id_pessoa, id_genero):
 
     avimdb = []; fa = set(); fd = set(); fg = set()
     for row in df.itertuples(index=False):
-        tn  = norm_titulo(row.Series_Title)
-        raw = to_str(row.Released_Year)
+        tn  = normalizar_titulo(row.Series_Title)
+        raw = converter_str(row.Released_Year)
         try:
             ano = int(float(raw)) if raw else None
         except ValueError:
@@ -326,18 +309,18 @@ def popular_imdb(conn, df, rt_to_id, id_pessoa, id_genero):
 
         avimdb.append((
             idf,
-            to_float(row.IMDB_Rating),
-            to_float(row.Meta_score),
-            to_int(row.No_of_Votes),
-            to_float(row.Gross),
-            to_str(row.Poster_Link),
+            converter_float(row.IMDB_Rating),
+            converter_float(row.Meta_score),
+            converter_int(row.No_of_Votes),
+            converter_float(row.Gross),
+            converter_str(row.Poster_Link),
         ))
         for col in ("Star1", "Star2", "Star3", "Star4"):
-            v = to_str(getattr(row, col))
+            v = converter_str(getattr(row, col))
             if v:
                 ip = id_pessoa.get(v)
                 if ip: fa.add((idf, ip))
-        d = to_str(row.Director)
+        d = converter_str(row.Director)
         if d:
             ip = id_pessoa.get(d)
             if ip: fd.add((idf, ip))
@@ -374,14 +357,14 @@ def popular_tcritico(conn, path, rt_to_id):
 
     critico_rows = []
     for row in criticos_uniq.itertuples(index=False):
-        nome = to_str(row.critic_name)
+        nome = converter_str(row.critic_name)
         if not nome:
             continue
         ip  = id_pessoa_c.get(nome)
         if not ip:
             continue
-        top = 1 if to_str(row.top_critic) == "True" else 0
-        pub = to_str(row.publisher_name)
+        top = 1 if converter_str(row.top_critic) == "True" else 0
+        pub = converter_str(row.publisher_name)
         critico_rows.append((ip, top, id_pub.get(pub)))
 
     cur.executemany(
@@ -407,16 +390,16 @@ def popular_tcritico(conn, path, rt_to_id):
     ):
         rows = []
         for row in chunk.itertuples(index=False):
-            idf = rt_to_id.get(to_str(row.rotten_tomatoes_link))
-            nc  = to_str(row.critic_name)
+            idf = rt_to_id.get(converter_str(row.rotten_tomatoes_link))
+            nc  = converter_str(row.critic_name)
             idc = id_critico.get(nc) if nc else None
             if idf and idc:
                 rows.append((
                     idf, idc,
-                    to_str(row.review_type),
-                    to_str(row.review_score),
-                    to_str(row.review_date),
-                    to_str(row.review_content),
+                    converter_str(row.review_type),
+                    converter_str(row.review_score),
+                    converter_str(row.review_date),
+                    converter_str(row.review_content),
                 ))
         if rows:
             cur.executemany(
@@ -432,7 +415,7 @@ def popular_tcritico(conn, path, rt_to_id):
 
 # ─── resumo ───────────────────────────────────────────────────────────────────
 
-def imprimir_resumo(conn):
+def _imprimir_resumo(conn):
     tabelas = [
         "Classificacao_Etaria", "Produtora", "Publicadora", "Genero",
         "Pessoa", "Critico", "Filme",
@@ -447,9 +430,9 @@ def imprimir_resumo(conn):
         print(f"  {t:<30} {n:>10,}")
 
 
-# ─── main ─────────────────────────────────────────────────────────────────────
+# ─── entrada ──────────────────────────────────────────────────────────────────
 
-def main():
+def criar_banco():
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     if DB_PATH.exists():
         DB_PATH.unlink()
@@ -472,11 +455,11 @@ def main():
     print("\nPopulando críticos e críticas (processo longo)...")
     popular_tcritico(conn, BASE_DIR / "tcritico.csv", rt_to_id)
 
-    imprimir_resumo(conn)
+    _imprimir_resumo(conn)
     conn.close()
     tamanho = DB_PATH.stat().st_size / 1e6
     print(f"\nBanco criado: {DB_PATH}  ({tamanho:.1f} MB)")
 
 
 if __name__ == "__main__":
-    main()
+    criar_banco()
