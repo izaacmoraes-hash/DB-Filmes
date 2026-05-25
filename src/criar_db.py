@@ -226,23 +226,30 @@ def popular_tfilmes(conn, df):
     conn.commit()
 
     print("  relacoes filme-genero, diretor, roteirista, ator...")
-    fg = set(); fd = set(); fr = set(); fa = set()
+    fg = set()
+    fd = set()
+    fr = set()
+    fa = set()
     for row in df.itertuples(index=False):
         idf = rt_to_id.get(converter_str(row.rotten_tomatoes_link))
         if not idf:
             continue
         for g in split_lista(row.genres):
             ig = id_genero.get(g)
-            if ig: fg.add((idf, ig))
+            if ig:
+                fg.add((idf, ig))
         for p in split_lista(row.directors):
             ip = id_pessoa.get(p)
-            if ip: fd.add((idf, ip))
+            if ip:
+                fd.add((idf, ip))
         for p in split_lista(row.authors):
             ip = id_pessoa.get(p)
-            if ip: fr.add((idf, ip))
+            if ip:
+                fr.add((idf, ip))
         for p in split_lista(row.actors):
             ip = id_pessoa.get(p)
-            if ip: fa.add((idf, ip))
+            if ip:
+                fa.add((idf, ip))
 
     cur.executemany("INSERT OR IGNORE INTO Filme_Genero     VALUES (?, ?)", fg)
     cur.executemany("INSERT OR IGNORE INTO Filme_Diretor    VALUES (?, ?)", fd)
@@ -278,7 +285,10 @@ def popular_imdb(conn, df, rt_to_id, id_pessoa, id_genero):
     if novos_g:
         id_genero.update(inserir_lookup(conn, "Genero", "nome", novos_g))
 
-    avimdb = []; fa = set(); fd = set(); fg = set()
+    avimdb = []
+    fa = set()
+    fd = set()
+    fg = set()
     for row in df.itertuples(index=False):
         tn  = normalizar_titulo(row.Series_Title)
         raw = converter_str(row.Released_Year)
@@ -302,14 +312,17 @@ def popular_imdb(conn, df, rt_to_id, id_pessoa, id_genero):
             v = converter_str(getattr(row, col))
             if v:
                 ip = id_pessoa.get(v)
-                if ip: fa.add((idf, ip))
+                if ip:
+                    fa.add((idf, ip))
         d = converter_str(row.Director)
         if d:
             ip = id_pessoa.get(d)
-            if ip: fd.add((idf, ip))
+            if ip:
+                fd.add((idf, ip))
         for g in split_lista(row.Genre):
             ig = id_genero.get(g)
-            if ig: fg.add((idf, ig))
+            if ig:
+                fg.add((idf, ig))
 
     cur.executemany("""
         INSERT OR IGNORE INTO Avaliacao_IMDB

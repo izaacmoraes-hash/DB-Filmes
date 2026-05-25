@@ -155,7 +155,7 @@ def preparar_dados():
                      "media_review_score", "nota_media", "qtd_notas_usadas"]
     print("\nAmostra das notas unificadas:")
     print(filmes_notas[colunas_notas].head(10).to_string(index=False))
-    print(f"\nEstatisticas de nota_media:")
+    print("\nEstatisticas de nota_media:")
     print(filmes_notas["nota_media"].describe().round(2))
 
     filmes_notas.to_csv(OUTPUT_DIR / "filmes_notas.csv", index=False)
